@@ -35,6 +35,7 @@
 #include "editor-source-map.h"
 #include "editor-source-view.h"
 #include "editor-utils-private.h"
+#include "editor-window-private.h"
 
 #define HIDE_POSITION_DELAY_SECONDS 1
 
@@ -49,6 +50,7 @@ enum {
   PROP_POSITION_LABEL,
   PROP_SETTINGS,
   PROP_SUBTITLE,
+  PROP_TAB_GROUP,
   PROP_TITLE,
   PROP_ZOOM_LABEL,
   N_PROPS
@@ -755,6 +757,12 @@ editor_page_dispose (GObject *object)
 
   g_clear_object (&self->document);
 
+  if (self->tab_group != NULL)
+    {
+      g_signal_handlers_disconnect_by_data (self->tab_group, self);
+      g_clear_object (&self->tab_group);
+    }
+
   G_OBJECT_CLASS (editor_page_parent_class)->dispose (object);
 }
 
@@ -795,6 +803,10 @@ editor_page_get_property (GObject    *object,
 
     case PROP_INDICATOR:
       g_value_set_object (value, editor_page_get_indicator (self));
+      break;
+
+    case PROP_TAB_GROUP:
+      g_value_set_object (value, self->tab_group);
       break;
 
     case PROP_IS_MODIFIED:
@@ -929,6 +941,12 @@ editor_page_class_init (EditorPageClass *klass)
                          "Settings",
                          "Settings",
                          EDITOR_TYPE_PAGE_SETTINGS,
+                         (G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
+
+  /* Also notified when the color of the group changes */
+  properties [PROP_TAB_GROUP] =
+    g_param_spec_object ("tab-group", NULL, NULL,
+                         EDITOR_TYPE_TAB_GROUP,
                          (G_PARAM_READABLE | G_PARAM_STATIC_STRINGS));
 
   properties [PROP_ZOOM_LABEL] =
@@ -1101,7 +1119,15 @@ editor_page_is_active (EditorPage *self)
   g_return_val_if_fail (EDITOR_IS_PAGE (self), FALSE);
 
   if (get_tab_info (self, &tab_view, &tab_page))
-    return tab_page == adw_tab_view_get_selected_page (tab_view);
+    {
+      EditorWindow *window = _editor_page_get_window (self);
+
+      /* Pages of collapsed tab groups are never the visible page */
+      if (window != NULL && _editor_window_page_is_hidden (window, self))
+        return FALSE;
+
+      return tab_page == adw_tab_view_get_selected_page (tab_view);
+    }
 
   return FALSE;
 }
@@ -1180,6 +1206,7 @@ void
 _editor_page_raise (EditorPage *self)
 {
   g_autofree gchar *title = NULL;
+  EditorWindow *window;
   AdwTabView *tab_view;
   AdwTabPage *tab_page;
 
@@ -1187,6 +1214,11 @@ _editor_page_raise (EditorPage *self)
 
   title = editor_page_dup_title (self);
   g_debug ("Attempting to raise page: \"%s\"", title);
+
+  /* Expand the collapsed tab group first so the page can be shown */
+  if ((window = _editor_page_get_window (self)) &&
+      _editor_window_page_is_hidden (window, self))
+    _editor_window_reveal_page (window, self);
 
   if (get_tab_info (self, &tab_view, &tab_page))
     adw_tab_view_set_selected_page (tab_view, tab_page);
@@ -1848,3 +1880,55 @@ editor_page_destroy (EditorPage *self)
   g_object_run_dispose (G_OBJECT (self));
 }
 
+
+static void
+editor_page_tab_group_notify_color_cb (EditorPage     *self,
+                                       GParamSpec     *pspec,
+                                       EditorTabGroup *tab_group)
+{
+  g_assert (EDITOR_IS_PAGE (self));
+  g_assert (EDITOR_IS_TAB_GROUP (tab_group));
+
+  g_object_notify_by_pspec (G_OBJECT (self), properties [PROP_TAB_GROUP]);
+}
+
+/**
+ * _editor_page_get_tab_group:
+ * @self: an #EditorPage
+ *
+ * Returns: (transfer none) (nullable): the #EditorTabGroup of the page
+ */
+EditorTabGroup *
+_editor_page_get_tab_group (EditorPage *self)
+{
+  g_return_val_if_fail (EDITOR_IS_PAGE (self), NULL);
+
+  return self->tab_group;
+}
+
+void
+_editor_page_set_tab_group (EditorPage     *self,
+                            EditorTabGroup *tab_group)
+{
+  g_return_if_fail (EDITOR_IS_PAGE (self));
+  g_return_if_fail (!tab_group || EDITOR_IS_TAB_GROUP (tab_group));
+
+  if (self->tab_group == tab_group)
+    return;
+
+  if (self->tab_group != NULL)
+    g_signal_handlers_disconnect_by_func (self->tab_group,
+                                          G_CALLBACK (editor_page_tab_group_notify_color_cb),
+                                          self);
+
+  g_set_object (&self->tab_group, tab_group);
+
+  if (tab_group != NULL)
+    g_signal_connect_object (tab_group,
+                             "notify::color",
+                             G_CALLBACK (editor_page_tab_group_notify_color_cb),
+                             self,
+                             G_CONNECT_SWAPPED);
+
+  g_object_notify_by_pspec (G_OBJECT (self), properties [PROP_TAB_GROUP]);
+}

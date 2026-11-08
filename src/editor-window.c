@@ -248,6 +248,7 @@ editor_window_notify_selected_page_cb (EditorWindow *self,
   editor_statusbar_bind_page (self->statusbar, page);
 
   _editor_window_actions_update (self, page);
+  _editor_window_groups_update_actions (self);
 
   if (page != NULL)
     editor_page_grab_focus (page);
@@ -321,22 +322,24 @@ editor_window_close_request (GtkWindow *window)
 {
   EditorWindow *self = (EditorWindow *)window;
   g_autoptr(GPtrArray) unsaved = NULL;
-  guint n_pages;
+  GList *pages;
 
   g_assert (EDITOR_IS_WINDOW (self));
 
   /* If there are documents open that need to be saved, first
-   * ask the user what they'd like us to do with them.
+   * ask the user what they'd like us to do with them. That includes
+   * the tabs of collapsed tab groups.
    */
   unsaved = g_ptr_array_new_with_free_func (g_object_unref);
-  n_pages = adw_tab_view_get_n_pages (self->tab_view);
-  for (guint i = 0; i < n_pages; i++)
+  pages = _editor_window_get_pages (self);
+  for (const GList *iter = pages; iter; iter = iter->next)
     {
-      EditorPage *page = editor_window_get_nth_page (self, i);
+      EditorPage *page = iter->data;
 
       if (editor_page_get_is_modified (page))
         g_ptr_array_add (unsaved, g_object_ref (page));
     }
+  g_list_free (pages);
 
   if (unsaved->len > 0)
     {
@@ -820,6 +823,8 @@ editor_window_dispose (GObject *object)
 
   g_assert (EDITOR_IS_WINDOW (self));
 
+  _editor_window_groups_dispose (self);
+
   _editor_session_remove_window (EDITOR_SESSION_DEFAULT, self);
 
   g_clear_object (&self->settings);
@@ -848,6 +853,7 @@ editor_window_finalize (GObject *object)
   g_clear_object (&self->page_signals);
   g_clear_object (&self->cancellable);
   g_clear_pointer (&self->closed_items, g_array_unref);
+  g_clear_object (&self->tab_groups);
 
   G_OBJECT_CLASS (editor_window_parent_class)->finalize (object);
 }
@@ -920,6 +926,7 @@ editor_window_class_init (EditorWindowClass *klass)
 
   gtk_widget_class_bind_template_child (widget_class, EditorWindow, empty);
   gtk_widget_class_bind_template_child (widget_class, EditorWindow, fullscreen_box);
+  gtk_widget_class_bind_template_child (widget_class, EditorWindow, hidden_tab_view);
   gtk_widget_class_bind_template_child (widget_class, EditorWindow, indicator);
   gtk_widget_class_bind_template_child (widget_class, EditorWindow, is_modified);
   gtk_widget_class_bind_template_child (widget_class, EditorWindow, open_menu_button);
@@ -929,6 +936,8 @@ editor_window_class_init (EditorWindowClass *klass)
   gtk_widget_class_bind_template_child (widget_class, EditorWindow, subtitle);
   gtk_widget_class_bind_template_child (widget_class, EditorWindow, statusbar);
   gtk_widget_class_bind_template_child (widget_class, EditorWindow, tab_bar);
+  gtk_widget_class_bind_template_child (widget_class, EditorWindow, tab_groups_box);
+  gtk_widget_class_bind_template_child (widget_class, EditorWindow, tab_groups_menu);
   gtk_widget_class_bind_template_child (widget_class, EditorWindow, tab_view);
   gtk_widget_class_bind_template_child (widget_class, EditorWindow, title);
 
@@ -976,6 +985,7 @@ editor_window_class_init (EditorWindowClass *klass)
   gtk_widget_class_add_binding_action (widget_class, GDK_KEY_KP_0, GDK_CONTROL_MASK, "page.zoom-one", NULL);
 
   _editor_window_class_actions_init (klass);
+  _editor_window_class_groups_init (klass);
 
   g_type_ensure (EDITOR_TYPE_FULLSCREEN_BOX);
   g_type_ensure (EDITOR_TYPE_OPEN_POPOVER);
@@ -1099,6 +1109,8 @@ editor_window_init (EditorWindow *self)
   _editor_window_dnd_init (self);
 
   _editor_window_actions_init (self);
+
+  _editor_window_groups_init (self);
 }
 
 EditorWindow *
@@ -1115,8 +1127,17 @@ _editor_window_new (void)
   return window;
 }
 
+/**
+ * _editor_window_get_visible_pages:
+ * @self: an #EditorWindow
+ *
+ * Gets the pages shown in the tab bar, which excludes the pages of
+ * collapsed tab groups.
+ *
+ * Returns: (transfer container): a #GList of #EditorPage
+ */
 GList *
-_editor_window_get_pages (EditorWindow *self)
+_editor_window_get_visible_pages (EditorWindow *self)
 {
   GQueue queue = G_QUEUE_INIT;
   guint n_pages;
@@ -1131,43 +1152,60 @@ _editor_window_get_pages (EditorWindow *self)
   return g_steal_pointer (&queue.head);
 }
 
-static gboolean
-modified_to_icon (GBinding     *binding,
-                  const GValue *from_value,
-                  GValue       *to_value,
-                  gpointer      user_data)
+/**
+ * _editor_window_get_pages:
+ * @self: an #EditorWindow
+ *
+ * Gets all pages of the window, including the pages of collapsed
+ * tab groups after the visible ones.
+ *
+ * Returns: (transfer container): a #GList of #EditorPage
+ */
+GList *
+_editor_window_get_pages (EditorWindow *self)
 {
-  static GIcon *icon;
+  GList *pages;
+  guint n_hidden;
 
-  if (icon == NULL)
-    icon = g_themed_icon_new ("document-modified-symbolic");
+  g_return_val_if_fail (EDITOR_IS_WINDOW (self), NULL);
 
-  if (g_value_get_boolean (from_value))
-    g_value_set_object (to_value, icon);
+  pages = _editor_window_get_visible_pages (self);
 
-  return TRUE;
+  if (self->hidden_tab_view == NULL)
+    return pages;
+
+  n_hidden = adw_tab_view_get_n_pages (self->hidden_tab_view);
+
+  for (guint i = 0; i < n_hidden; i++)
+    {
+      AdwTabPage *tab_page = adw_tab_view_get_nth_page (self->hidden_tab_view, i);
+
+      pages = g_list_append (pages, adw_tab_page_get_child (tab_page));
+    }
+
+  return pages;
 }
 
 static void
 editor_window_update_inhibit (EditorWindow *self)
 {
   gboolean inhibit = FALSE;
-  guint n_pages;
+  GList *pages;
 
   g_assert (EDITOR_IS_WINDOW (self));
 
-  n_pages = editor_window_get_n_pages (self);
+  pages = _editor_window_get_pages (self);
 
-  for (guint i = 0; i < n_pages; i++)
+  for (const GList *iter = pages; iter; iter = iter->next)
     {
-      EditorPage *page = editor_window_get_nth_page (self, i);
-
-      if (editor_page_get_is_modified (page))
+      if (editor_page_get_is_modified (iter->data))
         {
           inhibit = TRUE;
           break;
         }
     }
+
+  g_list_free (pages);
 
   if ((inhibit && self->inhibit_cookie != 0) ||
       (!inhibit && self->inhibit_cookie == 0))
@@ -1248,11 +1286,9 @@ _editor_window_add_page (EditorWindow *self,
   g_object_bind_property (page, "title", tab_page, "title", G_BINDING_SYNC_CREATE);
   g_object_bind_property (page, "busy", tab_page, "loading", G_BINDING_SYNC_CREATE);
   g_object_bind_property (page, "indicator", tab_page, "indicator-icon", G_BINDING_SYNC_CREATE);
-  g_object_bind_property_full (page, "is-modified",
-                               tab_page, "icon",
-                               G_BINDING_SYNC_CREATE,
-                               modified_to_icon, NULL,
-                               NULL, NULL);
+
+  /* Shows the modified state and the color of the tab group */
+  _editor_window_groups_track_page (self, page, tab_page);
 
   g_signal_connect_object (page,
                            "notify::is-modified",
@@ -1276,6 +1312,7 @@ void
 _editor_window_remove_page (EditorWindow *self,
                             EditorPage   *page)
 {
+  AdwTabView *tab_view;
   AdwTabPage *tab_page;
 
   g_return_if_fail (EDITOR_IS_WINDOW (self));
@@ -1285,10 +1322,17 @@ _editor_window_remove_page (EditorWindow *self,
                                         G_CALLBACK (page_notify_is_modified_cb),
                                         self);
 
-  tab_page = adw_tab_view_get_page (self->tab_view, GTK_WIDGET (page));
+  /* Pages of collapsed tab groups live in the hidden tab view */
+  if (_editor_window_page_is_hidden (self, page))
+    tab_view = self->hidden_tab_view;
+  else
+    tab_view = self->tab_view;
+
+  if (!(tab_page = adw_tab_view_get_page (tab_view, GTK_WIDGET (page))))
+    return;
 
   self->removing_page = page;
-  adw_tab_view_close_page (self->tab_view, tab_page);
+  adw_tab_view_close_page (tab_view, tab_page);
   self->removing_page = NULL;
 
   if (self->visible_page == page)
@@ -1336,6 +1380,9 @@ editor_window_set_visible_page (EditorWindow *self,
 
   g_return_if_fail (EDITOR_IS_WINDOW (self));
   g_return_if_fail (EDITOR_IS_PAGE (page));
+
+  if (_editor_window_page_is_hidden (self, page))
+    _editor_window_reveal_page (self, page);
 
   if ((tab_page = adw_tab_view_get_page (self->tab_view, GTK_WIDGET (page))))
     adw_tab_view_set_selected_page (self->tab_view, tab_page);

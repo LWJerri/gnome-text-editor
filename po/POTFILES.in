@@ -36,9 +36,11 @@ src/editor-search-entry.c
 src/editor-search-entry.ui
 src/editor-sidebar-item.c
 src/editor-sidebar-row.ui
+src/editor-tab-group.c
 src/editor-theme-selector.ui
 src/editor-utils.c
 src/editor-window-actions.c
 src/editor-window.c
+src/editor-window-groups.c
 src/editor-window.ui
 src/shortcuts-dialog.ui

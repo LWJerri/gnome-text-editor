@@ -48,11 +48,13 @@ editor_sources = [
   'editor-source-map.c',
   'editor-source-view.c',
   'editor-statusbar.c',
+  'editor-tab-group.c',
   'editor-theme-selector.c',
   'editor-utils.c',
   'editor-window.c',
   'editor-window-actions.c',
   'editor-window-dnd.c',
+  'editor-window-groups.c',
   'main.c',
 ]
 
@@ -122,3 +124,12 @@ editor = executable('gnome-text-editor', editor_sources + editor_enums + [build_
         win_subsystem: 'windows',
               install: true,
 )
+
+test_tab_group = executable('test-tab-group',
+  ['tests/test-tab-group.c', 'editor-tab-group.c'],
+  include_directories: [include_directories('..')],
+         dependencies: editor_deps,
+               c_args: ['-UG_DISABLE_ASSERT'], # GLib tests refuse to run without asserts
+              install: false,
+)
+test('tab-group', test_tab_group)

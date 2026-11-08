@@ -166,3 +166,44 @@ page positionlabel:backdrop {
 row.location.property .subtitle {
   filter: none;
 }
+
+/* Tab groups: colored chips at the start of the tab bar */
+tabbar .tab-groups {
+  margin: 0 3px 0 6px;
+}
+button.tab-group-chip.blue   { --tab-group-color: #3584e4; }
+button.tab-group-chip.teal   { --tab-group-color: #2190a4; }
+button.tab-group-chip.green  { --tab-group-color: #3a944a; }
+button.tab-group-chip.yellow { --tab-group-color: #c88800; }
+button.tab-group-chip.orange { --tab-group-color: #ed5b00; }
+button.tab-group-chip.red    { --tab-group-color: #e62d42; }
+button.tab-group-chip.pink   { --tab-group-color: #d56199; }
+button.tab-group-chip.purple { --tab-group-color: #9141ac; }
+button.tab-group-chip.slate  { --tab-group-color: #6f8396; }
+button.tab-group-chip {
+  min-height: 22px;
+  min-width: 10px;
+  padding: 0 10px;
+  border-radius: 9999px;
+  font-weight: bold;
+  color: white;
+  background-color: var(--tab-group-color);
+}
+button.tab-group-chip:hover {
+  background-color: color-mix(in srgb, var(--tab-group-color) 85%, white);
+}
+button.tab-group-chip:active {
+  background-color: color-mix(in srgb, var(--tab-group-color) 85%, black);
+}
+button.tab-group-chip.collapsed {
+  color: var(--tab-group-color);
+  background-color: color-mix(in srgb, var(--tab-group-color) 12%, transparent);
+  box-shadow: inset 0 0 0 2px var(--tab-group-color);
+}
+button.tab-group-chip.collapsed:hover {
+  background-color: color-mix(in srgb, var(--tab-group-color) 22%, transparent);
+}
+button.tab-group-chip .count {
+  font-weight: normal;
+  opacity: 0.85;
+}

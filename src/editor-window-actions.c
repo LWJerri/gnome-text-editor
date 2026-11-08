@@ -558,7 +558,7 @@ editor_window_actions_close_other_pages_cb (GtkWidget  *widget,
   g_assert (EDITOR_IS_WINDOW (self));
 
   current_page = editor_window_get_visible_page (self);
-  pages = _editor_window_get_pages (self);
+  pages = _editor_window_get_visible_pages (self);
   pages = g_list_remove (pages, current_page);
   _editor_window_request_close_pages (self, pages, TRUE);
   g_list_free (pages);

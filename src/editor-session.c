@@ -217,8 +217,9 @@ add_window_state (EditorSession   *self,
   for (guint i = 0; i < self->windows->len; i++)
     {
       EditorWindow *window = g_ptr_array_index (self->windows, i);
-      const GList *pages = _editor_window_get_pages (window);
+      g_autoptr(GList) pages = _editor_window_get_pages (window);
       gboolean is_active = gtk_window_is_active (GTK_WINDOW (window));
+      GVariant *tab_groups;
       gint width, height;
 
       g_variant_builder_open (builder, G_VARIANT_TYPE ("a{sv}"));
@@ -246,6 +247,7 @@ add_window_state (EditorSession   *self,
         {
           EditorPage *page = iter->data;
           EditorDocument *document = editor_page_get_document (page);
+          EditorTabGroup *tab_group = _editor_page_get_tab_group (page);
           GtkSourceLanguage *language = gtk_source_buffer_get_language (GTK_SOURCE_BUFFER (document));
           GFile *file = editor_document_get_file (document);
           const gchar *draft_id = _editor_document_get_draft_id (document);
@@ -284,6 +286,10 @@ add_window_state (EditorSession   *self,
           g_variant_builder_add (builder, "{sv}", "selection", selection_to_variant (&sel));
           if (page_is_active)
             g_variant_builder_add_parsed (builder, "{'is-active', <%b>}", page_is_active);
+          if (tab_group != NULL)
+            g_variant_builder_add_parsed (builder,
+                                          "{'tab-group', <%s>}",
+                                          _editor_tab_group_get_id (tab_group));
           if (file != NULL)
             {
               g_autofree gchar *uri = g_file_get_uri (file);
@@ -294,6 +300,10 @@ add_window_state (EditorSession   *self,
       g_variant_builder_close (builder);
       g_variant_builder_close (builder);
       g_variant_builder_close (builder);
+
+      /* Older versions ignore this key, so they still open every tab */
+      if ((tab_groups = _editor_window_save_tab_groups (window)))
+        g_variant_builder_add (builder, "{sv}", "tab-groups", tab_groups);
 
       g_variant_builder_close (builder);
     }
@@ -1668,6 +1678,7 @@ editor_session_restore_v1_pages (EditorSession *self,
       const char *draft_id;
       const char *charset;
       const char *uri;
+      const char *tab_group_id;
       gboolean is_active;
       Selection sel;
       guint line;
@@ -1675,6 +1686,9 @@ editor_session_restore_v1_pages (EditorSession *self,
 
       if (!g_variant_lookup (page, "draft-id", "&s", &draft_id))
         draft_id = NULL;
+
+      if (!g_variant_lookup (page, "tab-group", "&s", &tab_group_id))
+        tab_group_id = NULL;
 
       if (!g_variant_lookup (page, "uri", "&s", &uri))
         uri = NULL;
@@ -1728,6 +1742,7 @@ editor_session_restore_v1_pages (EditorSession *self,
         _editor_document_set_encoding (document, encoding);
 
       epage = editor_page_new_for_document (document);
+      _editor_page_set_tab_group (epage, _editor_window_find_tab_group (window, tab_group_id));
       editor_session_add_page (self, window, epage);
 
       _editor_document_load_async (document,
@@ -1823,6 +1838,8 @@ editor_session_restore_v1 (EditorSession *self,
   while (g_variant_iter_loop (&iter, "@a{sv}", &window))
     {
       g_autoptr(GVariant) pages = NULL;
+      g_autoptr(GVariant) tab_groups = NULL;
+      g_auto(GStrv) collapsed = NULL;
       gboolean maximized = FALSE;
 
       if (!g_variant_lookup (window, "size", "(uu)", &width, &height) ||
@@ -1843,6 +1860,10 @@ editor_session_restore_v1 (EditorSession *self,
           if (width > 0 && height > 0)
             gtk_window_set_default_size (GTK_WINDOW (ewin), width, height);
 
+          /* Groups must exist before the pages that reference them */
+          if ((tab_groups = g_variant_lookup_value (window, "tab-groups", G_VARIANT_TYPE ("aa{sv}"))))
+            collapsed = _editor_window_load_tab_groups (ewin, tab_groups);
+
           if (!editor_session_restore_v1_pages (self, ewin, pages))
             {
               had_failure = TRUE;
@@ -1850,6 +1871,8 @@ editor_session_restore_v1 (EditorSession *self,
               g_ptr_array_remove (self->windows, ewin);
               continue;
             }
+
+          _editor_window_collapse_tab_groups (ewin, (const char * const *)collapsed);
 
           /* We might have restored session where all files and drafts were removed.
            * In this case, we want to create a new draft page.
@@ -2293,7 +2316,13 @@ _editor_session_move_page_to_window (EditorSession *self,
 
   if (window != old_window)
     {
-      AdwTabPage *page = adw_tab_view_get_page (old_window->tab_view, GTK_WIDGET (epage));
+      AdwTabPage *page;
+
+      /* Only pages in the tab bar can be moved */
+      if (old_window != NULL)
+        _editor_window_reveal_page (old_window, epage);
+
+      page = adw_tab_view_get_page (old_window->tab_view, GTK_WIDGET (epage));
 
       _editor_page_begin_move (epage);
       adw_tab_view_transfer_page (old_window->tab_view, page, window->tab_view, 0);

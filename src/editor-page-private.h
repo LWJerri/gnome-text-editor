@@ -30,6 +30,7 @@
 #include "editor-position-label-private.h"
 #include "editor-print-operation.h"
 #include "editor-search-bar-private.h"
+#include "editor-tab-group-private.h"
 #include "editor-utils-private.h"
 #include "editor-window.h"
 
@@ -62,6 +63,9 @@ struct _EditorPage
   GtkInfoBar              *infobar;
   GtkEventController      *vim;
   EditorPositionLabel     *position_label;
+
+  /* The tab group this page belongs to, if any */
+  EditorTabGroup          *tab_group;
 
   guint                    cached_line;
   guint                    cached_visual_column;
@@ -98,6 +102,9 @@ gchar        *_editor_page_dup_title_no_i18n      (EditorPage           *self);
 void          _editor_page_begin_search           (EditorPage           *self);
 void          _editor_page_begin_replace          (EditorPage           *self);
 void          _editor_page_hide_search            (EditorPage           *self);
+EditorTabGroup *_editor_page_get_tab_group        (EditorPage           *self);
+void          _editor_page_set_tab_group          (EditorPage           *self,
+                                                   EditorTabGroup       *tab_group);
 void          _editor_page_scroll_to_insert       (EditorPage           *self);
 void          _editor_page_move_next_search       (EditorPage           *self,
                                                    gboolean              hide_after_search);

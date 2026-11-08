@@ -69,6 +69,12 @@
                         <property name="visible">false</property>
                       </object>
                     </child>
+                    <child>
+                      <!-- Holds the tabs of collapsed tab groups -->
+                      <object class="AdwTabView" id="hidden_tab_view">
+                        <property name="visible">false</property>
+                      </object>
+                    </child>
                   </object>
                 </property>
               </object>
@@ -262,6 +268,15 @@
         <child type="tab_bar">
           <object class="AdwTabBar" id="tab_bar">
             <property name="view">tab_view</property>
+            <property name="start-action-widget">
+              <object class="GtkBox" id="tab_groups_box">
+                <property name="spacing">4</property>
+                <property name="visible">false</property>
+                <style>
+                  <class name="tab-groups"/>
+                </style>
+              </object>
+            </property>
           </object>
         </child>
         <child>
@@ -440,6 +455,23 @@
         <attribute name="label" translatable="yes">_Move to New Window</attribute>
         <attribute name="action">page.move-to-new-window</attribute>
         <attribute name="accel">&lt;control&gt;&lt;shift&gt;n</attribute>
+      </item>
+    </section>
+    <section>
+      <submenu>
+        <attribute name="label" translatable="yes">Add Tab to _Group</attribute>
+        <section>
+          <item>
+            <attribute name="label" translatable="yes">_New Group…</attribute>
+            <attribute name="action">win.tab-group-new</attribute>
+          </item>
+        </section>
+        <section id="tab_groups_menu"/>
+      </submenu>
+      <item>
+        <attribute name="label" translatable="yes">Remove _from Group</attribute>
+        <attribute name="action">win.tab-group-remove-page</attribute>
+        <attribute name="hidden-when">action-disabled</attribute>
       </item>
     </section>
     <section>
